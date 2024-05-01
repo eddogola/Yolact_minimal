@@ -2,3 +2,4 @@ tensorboardX
 torchvision
 torch
 numpy
+terminaltables
