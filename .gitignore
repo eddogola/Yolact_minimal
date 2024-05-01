@@ -14,5 +14,5 @@ build/
 *.so
 onnx_files
 trt_files
-weights
+# weights
 tensorboard_log
