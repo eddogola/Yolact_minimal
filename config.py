@@ -85,7 +85,7 @@ class res101_coco:
         else:
             self.weight = args.weight
 
-        self.data_root = '/home/feiyu/Data/'
+        self.data_root = '/data/'
 
         if self.mode == 'train':
             self.train_imgs = self.data_root + 'coco2017/train2017/'
