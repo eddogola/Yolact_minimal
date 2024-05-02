@@ -78,8 +78,10 @@ if __name__ == '__main__':
         train_sampler = DistributedSampler(dataset, shuffle=True)
 
     # shuffle must be False if sampler is specified
-    data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
+    data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=10, shuffle=(train_sampler is None),
                                 collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
+    # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
+    #                             collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
     # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=0, shuffle=False,
     #                               collate_fn=train_collate, pin_memory=True)
 
