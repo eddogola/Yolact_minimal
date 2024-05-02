@@ -100,101 +100,99 @@ if __name__ == '__main__':
                 epoch_seed += 1
                 train_sampler.set_epoch(epoch_seed)
 
-            try:
-                for images, targets, masks in data_loader:
-                    if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # warm up learning rate.
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
+            for images, targets, masks in data_loader:
+                if images is None:
+                    continue
+                if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # warm up learning rate.
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
 
-                    if step in cfg.lr_steps:  # learning rate decay.
-                        for param_group in optimizer.param_groups:
-                            param_group['lr'] = cfg.lr * 0.1 ** cfg.lr_steps.index(step)
+                if step in cfg.lr_steps:  # learning rate decay.
+                    for param_group in optimizer.param_groups:
+                        param_group['lr'] = cfg.lr * 0.1 ** cfg.lr_steps.index(step)
+
+                if cfg.cuda:
+                    images = images.cuda().detach()
+                    targets = [ann.cuda().detach() for ann in targets]
+                    masks = [mask.cuda().detach() for mask in masks]
+
+                with timer.counter('for+loss'):
+                    loss_c, loss_b, loss_m, loss_s = net(images, targets, masks)
 
                     if cfg.cuda:
-                        images = images.cuda().detach()
-                        targets = [ann.cuda().detach() for ann in targets]
-                        masks = [mask.cuda().detach() for mask in masks]
+                        # use .all_reduce() to get the summed loss from all GPUs
+                        all_loss = torch.stack([loss_c, loss_b, loss_m, loss_s], dim=0)
+                        dist.all_reduce(all_loss)
 
-                    with timer.counter('for+loss'):
-                        loss_c, loss_b, loss_m, loss_s = net(images, targets, masks)
+                with timer.counter('backward'):
+                    loss_total = loss_c + loss_b + loss_m + loss_s
+                    optimizer.zero_grad()
+                    loss_total.backward()
 
-                        if cfg.cuda:
-                            # use .all_reduce() to get the summed loss from all GPUs
-                            all_loss = torch.stack([loss_c, loss_b, loss_m, loss_s], dim=0)
-                            dist.all_reduce(all_loss)
+                with timer.counter('update'):
+                    optimizer.step()
 
-                    with timer.counter('backward'):
-                        loss_total = loss_c + loss_b + loss_m + loss_s
-                        optimizer.zero_grad()
-                        loss_total.backward()
+                time_this = time.time()
+                if step > start_step:
+                    batch_time = time_this - time_last
+                    timer.add_batch_time(batch_time)
+                time_last = time_this
 
-                    with timer.counter('update'):
-                        optimizer.step()
+                if step % 10 == 0 and step != start_step:
+                    if (not cfg.cuda) or main_gpu:
+                        cur_lr = optimizer.param_groups[0]['lr']
+                        time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
+                        t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
+                        seconds = (cfg.lr_steps[-1] - step) * t_t
+                        eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
 
-                    time_this = time.time()
-                    if step > start_step:
-                        batch_time = time_this - time_last
-                        timer.add_batch_time(batch_time)
-                    time_last = time_this
+                        # Get the mean loss across all GPUS for printing, seems need to call .item(), not sure
+                        l_c = all_loss[0].item() / num_gpu if main_gpu else loss_c.item()
+                        l_b = all_loss[1].item() / num_gpu if main_gpu else loss_b.item()
+                        l_m = all_loss[2].item() / num_gpu if main_gpu else loss_m.item()
+                        l_s = all_loss[3].item() / num_gpu if main_gpu else loss_s.item()
 
-                    if step % 10 == 0 and step != start_step:
-                        if (not cfg.cuda) or main_gpu:
-                            cur_lr = optimizer.param_groups[0]['lr']
-                            time_name = ['batch', 'data', 'for+loss', 'backward', 'update']
-                            t_t, t_d, t_fl, t_b, t_u = timer.get_times(time_name)
-                            seconds = (cfg.lr_steps[-1] - step) * t_t
-                            eta = str(datetime.timedelta(seconds=seconds)).split('.')[0]
+                        writer.add_scalar('loss/class', l_c, global_step=step)
+                        writer.add_scalar('loss/box', l_b, global_step=step)
+                        writer.add_scalar('loss/mask', l_m, global_step=step)
+                        writer.add_scalar('loss/semantic', l_s, global_step=step)
+                        writer.add_scalar('loss/total', loss_total, global_step=step)
 
-                            # Get the mean loss across all GPUS for printing, seems need to call .item(), not sure
-                            l_c = all_loss[0].item() / num_gpu if main_gpu else loss_c.item()
-                            l_b = all_loss[1].item() / num_gpu if main_gpu else loss_b.item()
-                            l_m = all_loss[2].item() / num_gpu if main_gpu else loss_m.item()
-                            l_s = all_loss[3].item() / num_gpu if main_gpu else loss_s.item()
+                        print(f'step: {step} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | '
+                            f'l_mask: {l_m:.3f} | l_semantic: {l_s:.3f} | t_t: {t_t:.3f} | t_d: {t_d:.3f} | '
+                            f't_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
 
-                            writer.add_scalar('loss/class', l_c, global_step=step)
-                            writer.add_scalar('loss/box', l_b, global_step=step)
-                            writer.add_scalar('loss/mask', l_m, global_step=step)
-                            writer.add_scalar('loss/semantic', l_s, global_step=step)
-                            writer.add_scalar('loss/total', loss_total, global_step=step)
+                if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
+                    if (not cfg.cuda) or main_gpu:
+                        val_step = step
+                        net.eval()
+                        table, box_row, mask_row = evaluate(net.module, cfg, step)
+                        map_tables.append(table)
+                        net.train()
+                        timer.reset()  # training timer and val timer share the same Obj, so reset it to avoid conflict
 
-                            print(f'step: {step} | lr: {cur_lr:.2e} | l_class: {l_c:.3f} | l_box: {l_b:.3f} | '
-                                f'l_mask: {l_m:.3f} | l_semantic: {l_s:.3f} | t_t: {t_t:.3f} | t_d: {t_d:.3f} | '
-                                f't_fl: {t_fl:.3f} | t_b: {t_b:.3f} | t_u: {t_u:.3f} | ETA: {eta}')
+                        writer.add_scalar('mAP/box_map', box_row[1], global_step=step)
+                        writer.add_scalar('mAP/mask_map', mask_row[1], global_step=step)
 
-                    if args.val_interval > 0 and step % args.val_interval == 0 and step != start_step:
-                        if (not cfg.cuda) or main_gpu:
-                            val_step = step
-                            net.eval()
-                            table, box_row, mask_row = evaluate(net.module, cfg, step)
-                            map_tables.append(table)
-                            net.train()
-                            timer.reset()  # training timer and val timer share the same Obj, so reset it to avoid conflict
+                        save_best(net.module if cfg.cuda else net, mask_row[1], cfg_name, step)
 
-                            writer.add_scalar('mAP/box_map', box_row[1], global_step=step)
-                            writer.add_scalar('mAP/mask_map', mask_row[1], global_step=step)
+                if ((not cfg.cuda) or main_gpu) and step == val_step + 1:
+                    timer.start()  # the first iteration after validation should not be included
 
-                            save_best(net.module if cfg.cuda else net, mask_row[1], cfg_name, step)
+                step += 1
+                if step >= cfg.lr_steps[-1]:
+                    training = False
 
-                    if ((not cfg.cuda) or main_gpu) and step == val_step + 1:
-                        timer.start()  # the first iteration after validation should not be included
+                    if (not cfg.cuda) or main_gpu:
+                        save_latest(net.module if cfg.cuda else net, cfg_name, step)
 
-                    step += 1
-                    if step >= cfg.lr_steps[-1]:
-                        training = False
+                        print('\nValidation results during training:\n')
+                        for table in map_tables:
+                            print(table, '\n')
 
-                        if (not cfg.cuda) or main_gpu:
-                            save_latest(net.module if cfg.cuda else net, cfg_name, step)
+                        print(f'Training completed.')
 
-                            print('\nValidation results during training:\n')
-                            for table in map_tables:
-                                print(table, '\n')
-
-                            print(f'Training completed.')
-
-                        break
-            except Exception as e:
-                print(f'Error: {e}')
-                raise e
+                    break
 
     except KeyboardInterrupt:
         if (not cfg.cuda) or main_gpu:

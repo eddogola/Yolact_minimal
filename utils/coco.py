@@ -60,69 +60,76 @@ class COCODetection(data.Dataset):
         self.continuous_id = cfg.continuous_id
 
     def __getitem__(self, index):
-        if self.mode == 'detect':
-            img_name = self.image_path[index]
-            img_origin = cv2.imread(img_name)
-            img_normed = val_aug(img_origin, self.cfg.img_size)
-            return img_normed, img_origin, img_name.split(osp.sep)[-1]
-        else:
-            img_id = self.ids[index]
-            ann_ids = self.coco.getAnnIds(imgIds=img_id)
-
-            # 'target' includes {'segmentation', 'area', iscrowd', 'image_id', 'bbox', 'category_id'}
-            target = self.coco.loadAnns(ann_ids)
-            target = [aa for aa in target if not aa['iscrowd']]
-
-            file_name = self.coco.loadImgs(img_id)[0]['file_name']
-
-            img_path = osp.join(self.image_path, file_name)
-            assert osp.exists(img_path), f'Image path does not exist: {img_path}'
-
-            img = cv2.imread(img_path)
-            height, width, _ = img.shape
-
-            assert len(target) > 0, 'No annotation in this image!'
-            box_list, mask_list, label_list = [], [], []
-
-            for aa in target:
-                bbox = aa['bbox']
-
-                # When training, some boxes are wrong, ignore them.
-                if self.mode == 'train':
-                    if bbox[0] < 0 or bbox[1] < 0 or bbox[2] < 4 or bbox[3] < 4:
-                        continue
-
-                x1y1x2y2_box = np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]])
-                category = self.continuous_id[aa['category_id']] - 1
-
-                box_list.append(x1y1x2y2_box)
-                mask_list.append(self.coco.annToMask(aa))
-                label_list.append(category)
-
-            if len(box_list) > 0:
-                boxes = np.array(box_list)
-                masks = np.stack(mask_list, axis=0)
-                labels = np.array(label_list)
-                assert masks.shape == (boxes.shape[0], height, width), 'Unmatched annotations.'
-
-                if self.mode == 'train':
-                    img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg.img_size)
-                    if img is None:
-                        return None, None, None
-                    else:
-                        boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
-                        return img, boxes, masks
-                elif self.mode == 'val':
-                    img = val_aug(img, self.cfg.img_size)
-                    boxes = boxes / np.array([width, height, width, height])  # to 0~1 scale
-                    boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
-                    return img, boxes, masks, height, width
+        try:
+            if self.mode == 'detect':
+                img_name = self.image_path[index]
+                img_origin = cv2.imread(img_name)
+                img_normed = val_aug(img_origin, self.cfg.img_size)
+                return img_normed, img_origin, img_name.split(osp.sep)[-1]
             else:
-                if self.mode == 'val':
-                    raise RuntimeError('Error, no valid object in this image.')
-                else:
-                    print(f'No valid object in image: {img_id}. Use a repeated image in this batch.')
+                img_id = self.ids[index]
+                ann_ids = self.coco.getAnnIds(imgIds=img_id)
+
+                # 'target' includes {'segmentation', 'area', iscrowd', 'image_id', 'bbox', 'category_id'}
+                target = self.coco.loadAnns(ann_ids)
+                target = [aa for aa in target if not aa['iscrowd']]
+
+                file_name = self.coco.loadImgs(img_id)[0]['file_name']
+
+                img_path = osp.join(self.image_path, file_name)
+                # assert osp.exists(img_path), f'Image path does not exist: {img_path}'
+                if not osp.exists(img_path):
+                    print(f'Image path does not exist: {img_path}')
                     return None, None, None
+
+                img = cv2.imread(img_path)
+                height, width, _ = img.shape
+
+                assert len(target) > 0, 'No annotation in this image!'
+                box_list, mask_list, label_list = [], [], []
+
+                for aa in target:
+                    bbox = aa['bbox']
+
+                    # When training, some boxes are wrong, ignore them.
+                    if self.mode == 'train':
+                        if bbox[0] < 0 or bbox[1] < 0 or bbox[2] < 4 or bbox[3] < 4:
+                            continue
+
+                    x1y1x2y2_box = np.array([bbox[0], bbox[1], bbox[0] + bbox[2], bbox[1] + bbox[3]])
+                    category = self.continuous_id[aa['category_id']] - 1
+
+                    box_list.append(x1y1x2y2_box)
+                    mask_list.append(self.coco.annToMask(aa))
+                    label_list.append(category)
+
+                if len(box_list) > 0:
+                    boxes = np.array(box_list)
+                    masks = np.stack(mask_list, axis=0)
+                    labels = np.array(label_list)
+                    assert masks.shape == (boxes.shape[0], height, width), 'Unmatched annotations.'
+
+                    if self.mode == 'train':
+                        img, masks, boxes, labels = train_aug(img, masks, boxes, labels, self.cfg.img_size)
+                        if img is None:
+                            return None, None, None
+                        else:
+                            boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+                            return img, boxes, masks
+                    elif self.mode == 'val':
+                        img = val_aug(img, self.cfg.img_size)
+                        boxes = boxes / np.array([width, height, width, height])  # to 0~1 scale
+                        boxes = np.hstack((boxes, np.expand_dims(labels, axis=1)))
+                        return img, boxes, masks, height, width
+                else:
+                    if self.mode == 'val':
+                        raise RuntimeError('Error, no valid object in this image.')
+                    else:
+                        print(f'No valid object in image: {img_id}. Use a repeated image in this batch.')
+                        return None, None, None
+        except Exception as e:
+            print(f'Error in COCODetection: {e}')
+            return None, None, None
 
     def __len__(self):
         if self.mode == 'train':
