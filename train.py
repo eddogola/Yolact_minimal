@@ -192,9 +192,9 @@ if __name__ == '__main__':
                             print(f'Training completed.')
 
                         break
-            except Exception as e:
-                print(f'Error processing sample: {e}')
-                continue
+                except Exception as e:
+                    print(f'Error processing sample: {e}')
+                    continue
 
     except KeyboardInterrupt:
         if (not cfg.cuda) or main_gpu:
