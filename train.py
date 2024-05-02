@@ -100,8 +100,8 @@ if __name__ == '__main__':
                 epoch_seed += 1
                 train_sampler.set_epoch(epoch_seed)
 
-            for images, targets, masks in data_loader:
-                try:
+            try:
+                for images, targets, masks in data_loader:
                     if cfg.warmup_until > 0 and step <= cfg.warmup_until:  # warm up learning rate.
                         for param_group in optimizer.param_groups:
                             param_group['lr'] = (cfg.lr - cfg.warmup_init) * (step / cfg.warmup_until) + cfg.warmup_init
@@ -192,9 +192,9 @@ if __name__ == '__main__':
                             print(f'Training completed.')
 
                         break
-                except Exception as e:
-                    print(f'Error processing sample: {e}')
-                    continue
+            except Exception as e:
+                print(f'Error: {e}')
+                raise e
 
     except KeyboardInterrupt:
         if (not cfg.cuda) or main_gpu:
