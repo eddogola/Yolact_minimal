@@ -15,10 +15,17 @@ def train_collate(batch):
     imgs, targets, masks = [], [], []
     valid_batch = [aa for aa in batch if aa[0] is not None]
 
-    lack_len = len(batch) - len(valid_batch)
-    if lack_len > 0:
-        for i in range(lack_len):
-            valid_batch.append(valid_batch[i])
+    if len(valid_batch) == 0:
+        raise ValueError('No valid image in this batch.')
+
+    # if there are some invalid images in this batch, use the last valid image to replace them
+    while len(valid_batch) < len(batch):
+        valid_batch.append(valid_batch[-1])
+
+    # lack_len = len(batch) - len(valid_batch)
+    # if lack_len > 0:
+    #     for i in range(lack_len):
+    #         valid_batch.append(valid_batch[i])
 
     for sample in valid_batch:
         imgs.append(torch.tensor(sample[0], dtype=torch.float32))
