@@ -99,7 +99,9 @@ if __name__ == '__main__':
         print(f'Number of all parameters: {sum([p.numel() for p in net.parameters()])}\n')
 
     try:  # try-except can shut down all processes after Ctrl + C.
-        while training:
+        # while training:
+        for epoch in range(100):
+            print(f"Epoch: {epoch}")
             if train_sampler:
                 epoch_seed += 1
                 train_sampler.set_epoch(epoch_seed)
@@ -136,11 +138,11 @@ if __name__ == '__main__':
                 with timer.counter('update'):
                     optimizer.step()
 
-                time_this = time.time()
+                time_start = time.time()
                 if step > start_step:
-                    batch_time = time_this - time_last
+                    time_now = time.time()
+                    batch_time = time_now - time_start
                     timer.add_batch_time(batch_time)
-                time_last = time_this
 
                 if step % 10 == 0 and step != start_step:
                     if (not cfg.cuda) or main_gpu:
