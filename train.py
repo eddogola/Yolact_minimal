@@ -100,7 +100,7 @@ if __name__ == '__main__':
 
     try:  # try-except can shut down all processes after Ctrl + C.
         # while training:
-        for epoch in range(100):
+        for epoch in range(5):
             print(f"Epoch: {epoch}")
             if train_sampler:
                 epoch_seed += 1
