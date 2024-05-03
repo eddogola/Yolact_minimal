@@ -57,6 +57,7 @@ if __name__ == '__main__':
         start_step = 0
 
     dataset = COCODetection(cfg, mode='train')
+    subset_dataset = dataset[:200]
 
     if 'res' in cfg.__class__.__name__:
         optimizer = optim.SGD(net.parameters(), lr=cfg.lr, momentum=0.9, weight_decay=5e-4)
@@ -78,8 +79,9 @@ if __name__ == '__main__':
         train_sampler = DistributedSampler(dataset, shuffle=True)
 
     # shuffle must be False if sampler is specified
-    data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=10, shuffle=(train_sampler is None),
-                                collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
+    # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=10, shuffle=(train_sampler is None),
+    #                             collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
+    data_loader = data.DataLoader(subset_dataset, cfg.bs_per_gpu, shuffle=False, sampler=train_sampler, collate_fn=train_collate)
     # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=cfg.bs_per_gpu // 2, shuffle=(train_sampler is None),
     #                             collate_fn=train_collate, pin_memory=False, sampler=train_sampler)
     # data_loader = data.DataLoader(dataset, cfg.bs_per_gpu, num_workers=0, shuffle=False,
@@ -192,7 +194,7 @@ if __name__ == '__main__':
                         for table in map_tables:
                             print(table, '\n')
 
-                        print(f'Training completed.')
+                        print('Training completed.')
 
                     break
 
